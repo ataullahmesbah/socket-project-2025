@@ -8,7 +8,6 @@ const cors = require('cors');
 const dbConnect = require('./src/lib/dbMongoose');
 const Chat = require('./src/models/Chat');
 
-
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -69,6 +68,7 @@ const startServer = async () => {
                     socket.emit('chat-history', chat);
                     if (chat.status === 'pending') {
                         io.to('admin-room').emit('new-chat-request', chat);
+                        console.log(`📩 Emitted new-chat-request for userId: ${persistentUserId}`);
                     }
                 } catch (err) {
                     console.error('❌ Init chat error:', err.message);
@@ -79,7 +79,12 @@ const startServer = async () => {
             socket.on('user-message', async ({ persistentUserId, content }) => {
                 console.log('user-message received:', { persistentUserId, content });
                 try {
-                    const newMessage = { sender: 'user', content, timestamp: new Date(), _id: new mongoose.Types.ObjectId() };
+                    const newMessage = {
+                        sender: 'user',
+                        content,
+                        timestamp: new Date(),
+                        _id: new mongoose.Types.ObjectId(),
+                    };
                     const chat = await Chat.findOneAndUpdate(
                         { userId: persistentUserId },
                         { $push: { messages: newMessage }, $set: { updatedAt: new Date() } },
@@ -88,6 +93,9 @@ const startServer = async () => {
                     if (chat) {
                         io.to(persistentUserId).emit('new-message', newMessage);
                         io.to('admin-room').emit('new-message-for-admin', { userId: persistentUserId, message: newMessage });
+                        console.log(`📩 Emitted new-message-for-admin for userId: ${persistentUserId}, message:`, newMessage);
+                    } else {
+                        socket.emit('error', { message: 'Chat not found' });
                     }
                 } catch (err) {
                     console.error('❌ User message error:', err.message);
@@ -106,6 +114,9 @@ const startServer = async () => {
                     if (chat) {
                         io.to(userId).emit('chat-accepted', chat);
                         io.to('admin-room').emit('chat-status-update', { userId, status: 'active' });
+                        console.log(`🔄 Emitted chat-accepted for userId: ${userId}`);
+                    } else {
+                        socket.emit('error', { message: 'Chat not found' });
                     }
                 } catch (err) {
                     console.error('❌ Accept chat error:', err.message);
@@ -116,7 +127,12 @@ const startServer = async () => {
             socket.on('admin-message', async ({ userId, content }) => {
                 console.log('admin-message received:', { userId, content });
                 try {
-                    const newMessage = { sender: 'admin', content, timestamp: new Date(), _id: new mongoose.Types.ObjectId() };
+                    const newMessage = {
+                        sender: 'admin',
+                        content,
+                        timestamp: new Date(),
+                        _id: new mongoose.Types.ObjectId(),
+                    };
                     const chat = await Chat.findOneAndUpdate(
                         { userId },
                         { $push: { messages: newMessage }, $set: { status: 'active', updatedAt: new Date() } },
@@ -125,6 +141,9 @@ const startServer = async () => {
                     if (chat) {
                         io.to(userId).emit('new-message', newMessage);
                         io.to('admin-room').emit('new-message-for-admin', { userId, message: newMessage });
+                        console.log(`📩 Emitted admin-message for userId: ${userId}, message:`, newMessage);
+                    } else {
+                        socket.emit('error', { message: 'Chat not found' });
                     }
                 } catch (err) {
                     console.error('❌ Admin message error:', err.message);
