@@ -7,7 +7,7 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const dbConnect = require('./src/lib/dbMongoose');
 const Chat = require('./src/models/Chat');
-
+const mongoose = require('mongoose');
 
 const app = express();
 const server = http.createServer(app);
@@ -39,7 +39,7 @@ const startServer = async () => {
     try {
         await dbConnect();
         console.log('Environment variables:', {
-            MONGODB_URI: process.env.MONGODB_URI,
+            MONGODB_URI: process.env.MONGODB_URI.replace(/\/\/.*@/, '//<hidden>@'),
             MONGODB_DB: process.env.MONGODB_DB,
             FRONTEND_URL: process.env.FRONTEND_URL,
             PORT: process.env.PORT,
@@ -48,10 +48,10 @@ const startServer = async () => {
         io.on('connection', (socket) => {
             console.log(`✅ Client Connected: ${socket.id}, Query:`, socket.handshake.query);
 
-            if (socket.handshake.query.isAdmin === 'true') {
+            socket.on('join-admin-room', () => {
                 socket.join('admin-room');
                 console.log(`Socket ${socket.id} joined admin-room`);
-            }
+            });
 
             socket.on('init-chat', async ({ persistentUserId }) => {
                 console.log('init-chat received:', { persistentUserId });
@@ -72,7 +72,7 @@ const startServer = async () => {
                         console.log(`📩 Emitted new-chat-request for userId: ${persistentUserId}`);
                     }
                 } catch (err) {
-                    console.error('❌ Init chat error:', err.message);
+                    console.error('❌ Init chat error:', err.message, err.stack);
                     socket.emit('error', { message: 'Failed to initialize chat' });
                 }
             });
@@ -99,7 +99,7 @@ const startServer = async () => {
                         socket.emit('error', { message: 'Chat not found' });
                     }
                 } catch (err) {
-                    console.error('❌ User message error:', err.message);
+                    console.error('❌ User message error:', err.message, err.stack);
                     socket.emit('error', { message: 'Failed to send message' });
                 }
             });
@@ -120,7 +120,7 @@ const startServer = async () => {
                         socket.emit('error', { message: 'Chat not found' });
                     }
                 } catch (err) {
-                    console.error('❌ Accept chat error:', err.message);
+                    console.error('❌ Accept chat error:', err.message, err.stack);
                     socket.emit('error', { message: 'Failed to accept chat' });
                 }
             });
@@ -147,7 +147,7 @@ const startServer = async () => {
                         socket.emit('error', { message: 'Chat not found' });
                     }
                 } catch (err) {
-                    console.error('❌ Admin message error:', err.message);
+                    console.error('❌ Admin message error:', err.message, err.stack);
                     socket.emit('error', { message: 'Failed to send message' });
                 }
             });
@@ -162,7 +162,7 @@ const startServer = async () => {
             console.log(`> Socket server running on http://localhost:${port}`);
         });
     } catch (err) {
-        console.error('❌ Startup Error:', err);
+        console.error('❌ Startup Error:', err.message, err.stack);
         process.exit(1);
     }
 };
