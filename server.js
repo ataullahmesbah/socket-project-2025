@@ -1,5 +1,5 @@
 // socket-project/server.js
-//
+
 require('dotenv/config'); // Add this line at the top
 const express = require('express');
 const http = require('http');
@@ -7,6 +7,12 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const dbConnect = require('./src/lib/dbMongoose');
 const Chat = require('./src/models/Chat');
+
+
+
+
+
+
 
 const app = express();
 const server = http.createServer(app);
@@ -23,16 +29,29 @@ const io = new Server(server, {
 app.use(cors({ origin: process.env.FRONTEND_URL }));
 app.use(express.json());
 
+// Root route for testing
+app.get('/', (req, res) => {
+    res.status(200).json({ message: 'Socket.IO server is running' });
+});
+
 // Health check
 app.get('/health', (req, res) => {
+    console.log('Health check requested');
     res.status(200).json({ status: 'OK' });
 });
 
 const startServer = async () => {
     try {
         await dbConnect();
+        console.log('Environment variables:', {
+            MONGODB_URI: process.env.MONGODB_URI,
+            MONGODB_DB: process.env.MONGODB_DB,
+            FRONTEND_URL: process.env.FRONTEND_URL,
+            PORT: process.env.PORT,
+        });
+
         io.on('connection', (socket) => {
-            console.log(`✅ Client Connected: ${socket.id}`);
+            console.log(`✅ Client Connected: ${socket.id}, Query:`, socket.handshake.query);
 
             if (socket.handshake.query.isAdmin === 'true') {
                 socket.join('admin-room');
@@ -40,6 +59,7 @@ const startServer = async () => {
             }
 
             socket.on('init-chat', async ({ persistentUserId }) => {
+                console.log('init-chat received:', { persistentUserId });
                 if (!persistentUserId) {
                     console.error('❌ No persistentUserId');
                     return socket.emit('error', { message: 'No user ID provided' });
@@ -62,6 +82,7 @@ const startServer = async () => {
             });
 
             socket.on('user-message', async ({ persistentUserId, content }) => {
+                console.log('user-message received:', { persistentUserId, content });
                 try {
                     const newMessage = { sender: 'user', content, timestamp: new Date() };
                     await Chat.updateOne(
@@ -77,6 +98,7 @@ const startServer = async () => {
             });
 
             socket.on('accept-chat', async ({ userId }) => {
+                console.log('accept-chat received:', { userId });
                 try {
                     const chat = await Chat.findOneAndUpdate(
                         { userId },
@@ -94,6 +116,7 @@ const startServer = async () => {
             });
 
             socket.on('admin-message', async ({ userId, content }) => {
+                console.log('admin-message received:', { userId, content });
                 try {
                     const newMessage = { sender: 'admin', content, timestamp: new Date() };
                     await Chat.updateOne(

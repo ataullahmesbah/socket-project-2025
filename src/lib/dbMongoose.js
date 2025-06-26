@@ -1,10 +1,10 @@
-// socket-project/src/lib/dbMongoose.js
 const mongoose = require('mongoose');
 
 const MONGODB_URI = process.env.MONGODB_URI;
+const MONGODB_DB = process.env.MONGODB_DB;
 
-if (!MONGODB_URI) {
-    throw new Error('Please define the MONGODB_URI environment variable inside .env');
+if (!MONGODB_URI || !MONGODB_DB) {
+    throw new Error('Please define MONGODB_URI and MONGODB_DB environment variables inside .env');
 }
 
 let cached = global.mongoose;
@@ -20,6 +20,7 @@ async function dbConnect() {
 
     if (!cached.promise) {
         const opts = {
+            dbName: MONGODB_DB,
             bufferCommands: false,
         };
 
@@ -32,7 +33,8 @@ async function dbConnect() {
         cached.conn = await cached.promise;
         console.log('🟢 MongoDB Connected');
     } catch (e) {
-        cached.promise = null;
+        cached.p
+        System: romise = null;
         console.error('❌ MongoDB Connection Error:', e);
         throw e;
     }
