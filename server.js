@@ -9,16 +9,11 @@ const dbConnect = require('./src/lib/dbMongoose');
 const Chat = require('./src/models/Chat');
 
 
-
-
-
-
-
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
     path: '/socket.io',
-    transports: ['polling', 'websocket'],
+    transports: ['websocket', 'polling'],
     cors: {
         origin: process.env.FRONTEND_URL,
         methods: ['GET', 'POST'],
@@ -84,13 +79,16 @@ const startServer = async () => {
             socket.on('user-message', async ({ persistentUserId, content }) => {
                 console.log('user-message received:', { persistentUserId, content });
                 try {
-                    const newMessage = { sender: 'user', content, timestamp: new Date() };
-                    await Chat.updateOne(
+                    const newMessage = { sender: 'user', content, timestamp: new Date(), _id: new mongoose.Types.ObjectId() };
+                    const chat = await Chat.findOneAndUpdate(
                         { userId: persistentUserId },
-                        { $push: { messages: newMessage }, $set: { updatedAt: new Date() } }
+                        { $push: { messages: newMessage }, $set: { updatedAt: new Date() } },
+                        { new: true }
                     );
-                    io.to(persistentUserId).emit('new-message', newMessage);
-                    io.to('admin-room').emit('new-message-for-admin', { userId: persistentUserId, message: newMessage });
+                    if (chat) {
+                        io.to(persistentUserId).emit('new-message', newMessage);
+                        io.to('admin-room').emit('new-message-for-admin', { userId: persistentUserId, message: newMessage });
+                    }
                 } catch (err) {
                     console.error('❌ User message error:', err.message);
                     socket.emit('error', { message: 'Failed to send message' });
@@ -118,13 +116,16 @@ const startServer = async () => {
             socket.on('admin-message', async ({ userId, content }) => {
                 console.log('admin-message received:', { userId, content });
                 try {
-                    const newMessage = { sender: 'admin', content, timestamp: new Date() };
-                    await Chat.updateOne(
+                    const newMessage = { sender: 'admin', content, timestamp: new Date(), _id: new mongoose.Types.ObjectId() };
+                    const chat = await Chat.findOneAndUpdate(
                         { userId },
-                        { $push: { messages: newMessage }, $set: { status: 'active', updatedAt: new Date() } }
+                        { $push: { messages: newMessage }, $set: { status: 'active', updatedAt: new Date() } },
+                        { new: true }
                     );
-                    io.to(userId).emit('new-message', newMessage);
-                    io.to('admin-room').emit('new-message-for-admin', { userId, message: newMessage });
+                    if (chat) {
+                        io.to(userId).emit('new-message', newMessage);
+                        io.to('admin-room').emit('new-message-for-admin', { userId, message: newMessage });
+                    }
                 } catch (err) {
                     console.error('❌ Admin message error:', err.message);
                     socket.emit('error', { message: 'Failed to send message' });
