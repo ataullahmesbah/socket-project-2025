@@ -10,6 +10,8 @@ const Chat = require('./src/models/Chat');
 const mongoose = require('mongoose');
 
 
+
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -20,6 +22,8 @@ const io = new Server(server, {
     methods: ['GET', 'POST'],
     credentials: true,
   },
+  pingTimeout: 20000,
+  pingInterval: 25000,
 });
 
 app.use(cors({ origin: process.env.FRONTEND_URL }));
@@ -33,7 +37,7 @@ app.get('/', (req, res) => {
 // Health check
 app.get('/health', (req, res) => {
   console.log('Health check requested');
-  res.status(200).json({ status: 'OK' });
+  res.status(200).json({ status: 'OK', dbStatus: mongoose.connection.readyState });
 });
 
 const startServer = async () => {

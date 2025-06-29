@@ -23,6 +23,9 @@ async function dbConnect() {
     const opts = {
       dbName: MONGODB_DB,
       bufferCommands: false,
+      maxPoolSize: 10,
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 20000,
     };
 
     console.log('🟡 Attempting MongoDB connection:', { uri: MONGODB_URI.replace(/\/\/.*@/, '//<hidden>@'), dbName: MONGODB_DB });
@@ -35,9 +38,10 @@ async function dbConnect() {
 
   try {
     cached.conn = await cached.promise;
+    console.log('🟢 MongoDB Connection Status:', mongoose.connection.readyState);
   } catch (e) {
     cached.promise = null;
-    console.error('❌ MongoDB Connection Error (Backend):', e.message);
+    console.error('❌ MongoDB Connection Error (Backend):', e.message, e.stack);
     throw e;
   }
 
