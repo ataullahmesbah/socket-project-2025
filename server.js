@@ -10,10 +10,9 @@ const Chat = require('./src/models/Chat');
 const mongoose = require('mongoose');
 
 
-
-
 const app = express();
 const server = http.createServer(app);
+
 const io = new Server(server, {
   path: '/socket.io',
   transports: ['websocket', 'polling'],
@@ -29,40 +28,31 @@ const io = new Server(server, {
 app.use(cors({ origin: process.env.FRONTEND_URL }));
 app.use(express.json());
 
-// Root route for testing
 app.get('/', (req, res) => {
   res.status(200).json({ message: 'Socket.IO server is running' });
 });
 
-// Health check
 app.get('/health', (req, res) => {
-  console.log('Health check requested');
   res.status(200).json({ status: 'OK', dbStatus: mongoose.connection.readyState });
 });
 
 const startServer = async () => {
   try {
     await dbConnect();
-    console.log('Environment variables:', {
-      MONGODB_URI: process.env.MONGODB_URI.replace(/\/\/.*@/, '//<hidden>@'),
-      MONGODB_DB: process.env.MONGODB_DB,
-      FRONTEND_URL: process.env.FRONTEND_URL,
-      PORT: process.env.PORT,
-    });
+    console.log('🟢 MongoDB Connected');
 
     io.on('connection', (socket) => {
-      console.log(`✅ Client Connected: ${socket.id}, Query:`, socket.handshake.query);
+      console.log(`✅ Client Connected: ${socket.id}`);
 
+      // Admin joins the admin room
       socket.on('join-admin-room', () => {
         socket.join('admin-room');
         console.log(`Socket ${socket.id} joined admin-room`);
-        io.to('admin-room').emit('admin-room-status', { message: `Socket ${socket.id} joined admin-room` });
       });
 
+      // User initializes a chat
       socket.on('init-chat', async ({ persistentUserId }) => {
-        console.log('init-chat received:', { persistentUserId });
         if (!persistentUserId) {
-          console.error('❌ No persistentUserId');
           return socket.emit('error', { message: 'No user ID provided' });
         }
         socket.join(persistentUserId);
@@ -73,18 +63,19 @@ const startServer = async () => {
             { upsert: true, new: true, setDefaultsOnInsert: true }
           );
           socket.emit('chat-history', chat);
-          if (chat.status === 'pending') {
+          // Notify admin only if it's a brand new chat session with no messages
+          if (chat.messages.length === 0) {
             io.to('admin-room').emit('new-chat-request', chat);
-            console.log(`📩 Emitted new-chat-request for userId: ${persistentUserId}`);
+            console.log(`📩 Emitted new-chat-request for new userId: ${persistentUserId}`);
           }
         } catch (err) {
-          console.error('❌ Init chat error:', err.message, err.stack);
+          console.error('❌ Init chat error:', err.message);
           socket.emit('error', { message: 'Failed to initialize chat' });
         }
       });
 
+      // Handle user's message
       socket.on('user-message', async ({ persistentUserId, content }) => {
-        console.log('user-message received:', { persistentUserId, content });
         try {
           const newMessage = {
             sender: 'user',
@@ -92,47 +83,26 @@ const startServer = async () => {
             timestamp: new Date(),
             _id: new mongoose.Types.ObjectId(),
           };
+          // Find the chat and push the new message
           const chat = await Chat.findOneAndUpdate(
             { userId: persistentUserId },
-            { $push: { messages: newMessage }, $set: { updatedAt: new Date() } },
-            { new: true }
+            { $push: { messages: newMessage }, $set: { status: 'pending', updatedAt: new Date() } },
+            { new: true, upsert: true }
           );
           if (chat) {
+            // Send the message back to the user's room
             io.to(persistentUserId).emit('new-message', newMessage);
+            // Send the message to the admin room
             io.to('admin-room').emit('new-message-for-admin', { userId: persistentUserId, message: newMessage });
-            console.log(`📩 Emitted new-message-for-admin for userId: ${persistentUserId}, message:`, newMessage);
-          } else {
-            socket.emit('error', { message: 'Chat not found' });
           }
         } catch (err) {
-          console.error('❌ User message error:', err.message, err.stack);
+          console.error('❌ User message error:', err.message);
           socket.emit('error', { message: 'Failed to send message' });
         }
       });
 
-      socket.on('accept-chat', async ({ userId }) => {
-        console.log('accept-chat received:', { userId });
-        try {
-          const chat = await Chat.findOneAndUpdate(
-            { userId },
-            { status: 'active' },
-            { new: true }
-          );
-          if (chat) {
-            io.to(userId).emit('chat-accepted', chat);
-            io.to('admin-room').emit('chat-status-update', { userId, status: 'active' });
-            console.log(`🔄 Emitted chat-accepted for userId: ${userId}`);
-          } else {
-            socket.emit('error', { message: 'Chat not found' });
-          }
-        } catch (err) {
-          console.error('❌ Accept chat error:', err.message, err.stack);
-          socket.emit('error', { message: 'Failed to accept chat' });
-        }
-      });
-
+      // Handle admin's message
       socket.on('admin-message', async ({ userId, content }) => {
-        console.log('admin-message received:', { userId, content });
         try {
           const newMessage = {
             sender: 'admin',
@@ -146,15 +116,34 @@ const startServer = async () => {
             { new: true }
           );
           if (chat) {
+            // Send the message to the user's room
             io.to(userId).emit('new-message', newMessage);
+            // Send the message to the admin room so all admins are in sync
             io.to('admin-room').emit('new-message-for-admin', { userId, message: newMessage });
-            console.log(`📩 Emitted admin-message for userId: ${userId}, message:`, newMessage);
-          } else {
-            socket.emit('error', { message: 'Chat not found' });
           }
         } catch (err) {
-          console.error('❌ Admin message error:', err.message, err.stack);
+          console.error('❌ Admin message error:', err.message);
           socket.emit('error', { message: 'Failed to send message' });
+        }
+      });
+
+      // Handle admin accepting a chat
+      socket.on('accept-chat', async ({ userId }) => {
+        try {
+          const chat = await Chat.findOneAndUpdate(
+            { userId },
+            { status: 'active' },
+            { new: true }
+          );
+          if (chat) {
+            // Notify the user that the chat is accepted
+            io.to(userId).emit('chat-accepted', chat);
+            // Notify all admins about the status change
+            io.to('admin-room').emit('chat-status-update', { userId, status: 'active' });
+          }
+        } catch (err) {
+          console.error('❌ Accept chat error:', err.message);
+          socket.emit('error', { message: 'Failed to accept chat' });
         }
       });
 
@@ -168,7 +157,7 @@ const startServer = async () => {
       console.log(`> Socket server running on http://localhost:${port}`);
     });
   } catch (err) {
-    console.error('❌ Startup Error:', err.message, err.stack);
+    console.error('❌ Startup Error:', err.message);
     process.exit(1);
   }
 };
